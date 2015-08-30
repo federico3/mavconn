@@ -81,6 +81,8 @@ bool emitHeartbeat;       ///< Generate a heartbeat with this process
 bool debug;               ///< Enable debug functions and output
 bool test;                ///< Enable test mode
 bool pc2serial;			  ///< Enable PC to serial push mode (send more stuff from pc over serial)
+bool pcrelay;             ///< Relay all messages, except for image data, over serial. Useful for onboard PC to serial radio
+bool imgrelay;            ///< Also relay images over serial
 
 lcm_t* lcm;               ///< Reference to LCM bus
 
@@ -207,6 +209,28 @@ static void mavlink_handler (const lcm_recv_buf_t *rbuf, const char * channel,
 				tcdrain(fd);
 				if (messageLength != written) fprintf(stderr, "ERROR: Wrote %d bytes but should have written %d\n", written, messageLength);
 		}
+
+        if (pcrelay && msg->sysid == systemid &&
+           ((msg->msgid != MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE
+        && msg->msgid != MAVLINK_MSG_ID_ENCAPSULATED_DATA) || imgrelay))
+        {
+			if (verbose || debug)
+					std::cout << std::dec
+							<< "Received and forwarded LCM message with id "
+							<< static_cast<unsigned int> (msg->msgid)
+							<< " from system " << static_cast<int> (msg->sysid)
+							<< std::endl;
+
+				// Send message over serial port
+				uint8_t buffer[MAVLINK_MAX_PACKET_LEN];
+				int messageLength = mavlink_msg_to_send_buffer(buffer, msg);
+				if (debug) printf("Writing %d bytes\n", messageLength);
+				int written = write(fd, (char*)buffer, messageLength);
+				/* wait until all data has been written */
+				tcdrain(fd);
+				if (messageLength != written) fprintf(stderr, "ERROR: Wrote %d bytes but should have written %d\n", written, messageLength);
+
+        }
 
 		if (msg->msgid == MAVLINK_MSG_ID_PING)
 		{
@@ -550,6 +574,8 @@ int main(int argc, char* argv[])
 		("verbose,v", config::bool_switch(&verbose)->default_value(false), "verbose output")
 		("debug,d", config::bool_switch(&debug)->default_value(false), "Emit debug information")
 		("pc2serial", config::bool_switch(&pc2serial)->default_value(false), "Send more status information from PC over serial (for second XBee mode)")
+        ("pcrelay", config::bool_switch(&pcrelay)->default_value(false), "Relay all messages, except for image data, over serial. Useful for onboard PC to serial radio.")
+        ("imgrelay", config::bool_switch(&imgrelay)->default_value(false), "Relay image data over serial. Will be removed in a future version (automatic switching instead)")
 		;
 	config::variables_map vm;
 	config::store(config::parse_command_line(argc, argv, desc), vm);

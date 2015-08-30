@@ -146,11 +146,15 @@ static inline int getSystemID(void)
 				if (key == "systemid" && value > 0 && value < 256)
 				{
 					systemId = value;
+                    isCached = true;
+                    //std::cout<<"Reading SysID from mavconn.conf successful, sysID "<<systemId<<"\n";
 				}
 			}
 		}
 
-	}
+	}/*else{
+        std::cout<<"Reading cached SysID "<<systemId<<"\n";
+    }*/
 
 	return systemId;
 }

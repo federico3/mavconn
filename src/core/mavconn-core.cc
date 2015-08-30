@@ -283,7 +283,7 @@ int main (int argc, char ** argv)
 	// Handling Program options
 	static GOptionEntry entries[] =
 	{
-			{ "sysid", 'a', 0, G_OPTION_ARG_INT, &systemid, "ID of this system", NULL },
+			{ "sysid", 'a', 0, G_OPTION_ARG_INT, &systemid, "ID of this system",NULL },
 			{ "compid", 'c', 0, G_OPTION_ARG_INT, &compid, "ID of this component", NULL },
 			{ "heartbeat", NULL, 0, G_OPTION_ARG_NONE, &emitHeartbeat, "Emit Heartbeat", (emitHeartbeat) ? "on" : "off" },
 			{ "cpu", NULL, 0, G_OPTION_ARG_NONE, &cpu_performance, "Set CPU to performance mode", NULL },
@@ -313,8 +313,8 @@ int main (int argc, char ** argv)
 		return 1;
 
 	// Initialize parameter client before subscribing (and receiving) MAVLINK messages
-	paramClient = new MAVConnParamClient(systemid, compid, lcm, "mavconn-sysctrl.cfg", verbose);
-	//paramClient->setParamValue("SYS_ID", systemid);
+	paramClient = new MAVConnParamClient(systemid, compid, lcm, "", verbose);
+	paramClient->setParamValue("SYS_ID", systemid);
 	//paramClient->readParamsFromFile("px_system_control.cfg");
 
 	thread_context_t thread_context;

@@ -29,6 +29,14 @@ PIXHAWK_LINK_LIBRARIES(mavconn-bridge-serial
   ${Boost_PROGRAM_OPTIONS_LIBRARY}
 )
 
+PIXHAWK_EXECUTABLE(mavconn-bridge-serial-new mavconn-bridge-serial-new.cc)
+PIXHAWK_LINK_LIBRARIES(mavconn-bridge-serial-new
+  mavconn_lcm
+  ${GLIB2_LIBRARY}
+  ${GTHREAD2_LIBRARY}
+  ${Boost_PROGRAM_OPTIONS_LIBRARY}
+)
+
 PIXHAWK_EXECUTABLE(mavconn-bridge-udp mavconn-bridge-udp.cc)
 PIXHAWK_LINK_LIBRARIES(mavconn-bridge-udp
   mavconn_lcm

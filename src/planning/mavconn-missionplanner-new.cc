@@ -23,6 +23,10 @@
 #include "core/MAVConnParamClient.h"
 #include <glib.h>
 
+//UGLINESS (Federico, fix mismatch between Mavconn and Mavlink by including legacy Mavlink header)
+#include "../../../mavlink/build/include/v1.0/legacy/mavlink_msg_set_local_position_setpoint.h"
+//END UGLINESS
+
 namespace config = boost::program_options;
 
 lcm_t* lcm;

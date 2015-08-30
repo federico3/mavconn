@@ -150,9 +150,7 @@ PxCameraStereoCalibration::~PxCameraStereoCalibration(void)
 */
 void PxCameraStereoCalibration::undistortPointsLeft(const CvPoint2D32f *pSrc, CvPoint2D32f *pDest, int count) const
 {
-	cout<<"\n\n\nERROR ERROR ERROR\n\nERROR ERROR ERROR\n\n This function has been disabled for compatibility reasons.\n It actually does nothing.\nConsider reactivating if you need it.\n G++ 4.8 runs out of memory compiling this.\n"; //Federico added on May 27, 2015	
-
-/*const int iters = 5;
+	const int iters = 5;
 	const float ifx = 1.f / m_calibL->focalLength()[0]; // 1.f / focal_x;
 	const float ify = 1.f / m_calibL->focalLength()[1]; // 1.f / focal_y;
 	const float cx = m_calibL->principalPoint()[0];
@@ -184,7 +182,7 @@ void PxCameraStereoCalibration::undistortPointsLeft(const CvPoint2D32f *pSrc, Cv
 
 		pDest[i].x = xx*ww;
 		pDest[i].y = yy*ww;
-	}*/
+	}
 }
 
 /**
@@ -198,10 +196,7 @@ void PxCameraStereoCalibration::undistortPointsLeft(const CvPoint2D32f *pSrc, Cv
 */
 void PxCameraStereoCalibration::undistortPointsRight(const CvPoint2D32f *pSrc, CvPoint2D32f *pDest, int count) const
 {
-
-	cout<<"\n\n\nERROR ERROR ERROR\n\nERROR ERROR ERROR\n\n This function has been disabled for compatibility reasons.\n It actually does nothing.\nConsider reactivating if you need it.\n G++ 4.8 runs out of memory compiling this.\n"; //Federico added on May 27, 2015	
-
-	/*const int iters = 5;
+	const int iters = 5;
 	const float ifx = 1.f / m_calibR->focalLength()[0]; // 1.f / focal_x;
 	const float ify = 1.f / m_calibR->focalLength()[1]; // 1.f / focal_y;
 	const float cx = m_calibR->principalPoint()[0];
@@ -220,7 +215,7 @@ void PxCameraStereoCalibration::undistortPointsRight(const CvPoint2D32f *pSrc, C
 		for(int j = 0; j < iters; j++ )
 		{
 			float r2 = x*x + y*y;
-			float icdist = ( (float) 1)/(1 + ((m_kc[4]*r2 + m_kc[1])*r2 + m_kc[0])*r2);
+			float icdist = 1.f/(1 + ((m_kc[4]*r2 + m_kc[1])*r2 + m_kc[0])*r2);
 			float deltaX = 2*m_kc[2]*x*y + m_kc[3]*(r2 + 2*x*x);
 			float deltaY = m_kc[2]*(r2 + 2*y*y) + 2*m_kc[3]*x*y;
 			x = (x0 - deltaX)*icdist;
@@ -229,11 +224,11 @@ void PxCameraStereoCalibration::undistortPointsRight(const CvPoint2D32f *pSrc, C
 
 		float xx = m_RectTransformR[0]*x + m_RectTransformR[1]*y + m_RectTransformR[2];
 		float yy = m_RectTransformR[3]*x + m_RectTransformR[4]*y + m_RectTransformR[5];
-		float ww = ( (float) 1)/(m_RectTransformR[6]*x + m_RectTransformR[7]*y + m_RectTransformR[8]);
+		float ww = 1.f/(m_RectTransformR[6]*x + m_RectTransformR[7]*y + m_RectTransformR[8]);
 
 		pDest[i].x = xx*ww;
 		pDest[i].y = yy*ww;
-	}*/
+	}
 }
 
 /**

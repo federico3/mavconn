@@ -50,7 +50,7 @@ This file is part of the MAVCONN project
 // #include <sys/time.h>
 #include <time.h>
 
-//Timing
+//Async stop, wish me luck! Alternatively, just wrap the whole thing in an if that checks whether a timer has expired, then reset the timer as you start
 #include <thread>
 #include <chrono>
 
@@ -71,12 +71,6 @@ using namespace std;
 
 #define PACKET_PAYLOAD		253
 bool captureImage = false;
-float imgdT=1; //Frames per second
-int redundantFrames=1;    //How many times we send each image packet
-uint16_t CameraResW = 640;
-uint16_t CameraResH = 480;
-
-int myimgcounter = 1;
 
 lcm_t* lcmImage;
 lcm_t* lcmMavlink;
@@ -84,90 +78,6 @@ mavlink_message_t tmp;
 mavlink_data_transmission_handshake_t req, ack;
 
 bool quit = false;
-
-
-/**
- * @brief Read camera vertical resolution from config file
- */
-static inline int getCameraResW(void)   //Modeled after GetSystemID
-{
-	static bool isCached = false;
-	// Return 640 on error or no config file present
-	static int CCameraResW = 640;
-
-	if (!isCached)
-	{
-		// Read config file
-		std::string line;
-		std::ifstream configFile("/etc/mavconn/mavconn.conf");
-		if (configFile.is_open())
-		{
-			while (configFile.good())
-			{
-				std::string key;
-				int value;
-				configFile >> key;
-				configFile >> value;
-
-				key = trimString(key);
-
-				if (key == "cameraresw" && value > 0)
-				{
-					CCameraResW = value;
-                    isCached = true;
-                    //std::cout<<"Reading SysID from mavconn.conf successful, sysID "<<systemId<<"\n";
-				}
-			}
-		}
-
-	}/*else{
-        std::cout<<"Reading cached SysID "<<systemId<<"\n";
-    }*/
-
-	return CCameraResW;
-}
-/**
- * @brief Read camera vertical resolution from config file
- */
-static inline int getCameraResH(void)   //Modeled after GetSystemID
-{
-	static bool isCached = false;
-	// Return 480 on error or no config file present
-	static int CCameraResH = 480;
-
-	if (!isCached)
-	{
-		// Read config file
-		std::string line;
-		std::ifstream configFile("/etc/mavconn/mavconn.conf");
-		if (configFile.is_open())
-		{
-			while (configFile.good())
-			{
-				std::string key;
-				int value;
-				configFile >> key;
-				configFile >> value;
-
-				key = trimString(key);
-
-				if (key == "cameraresh" && value > 0)
-				{
-					CCameraResH = value;
-                    isCached = true;
-                    //std::cout<<"Reading SysID from mavconn.conf successful, sysID "<<systemId<<"\n";
-				}
-			}
-		}
-
-	}/*else{
-        std::cout<<"Reading cached SysID "<<systemId<<"\n";
-    }*/
-
-	return CCameraResH;
-} 
-
-
 /**
  * @brief Handle incoming MAVLink packets containing images
  */
@@ -179,10 +89,8 @@ static void image_handler (const lcm_recv_buf_t *rbuf, const char * channel, con
 	std::vector<px::SHMImageClient>* clientVec = reinterpret_cast< std::vector<px::SHMImageClient>* >(user);
 
 	// Temporary memory for raw camera image
-	cv::Mat img;
-	cv::Mat img2;	// img2 not used.
-
-	// TODO resize IMG according to the resolution requested in the CMD_DO_CONTROL_VIDEO message, which also affects the camera controller.
+	cv::Mat img( 480, 640, CV_8UC1 );
+	cv::Mat img2( 480, 640, CV_8UC1 );	// img2 not used.
 
 	for(size_t i = 0; i < clientVec->size(); ++i){
 		px::SHMImageClient& client = clientVec->at(i);
@@ -202,23 +110,12 @@ static void image_handler (const lcm_recv_buf_t *rbuf, const char * channel, con
 				continue;
 			}
 		}
-        
-        // Timing works as follows. We have a static time tic and a non-static time toc. We update toc every time we open this function.
-        // If toc-tic>ImgFrequency, we set tic=toc and we execute the encoding and sending below. Otherwise, we skip it.
-
-        static std::chrono::high_resolution_clock::time_point tic;
-        std::chrono::high_resolution_clock::time_point toc = std::chrono::high_resolution_clock::now();
-
-        std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(toc - tic);
 
         //Only execute the stuff below every now and then: from here
 
-        //Override captureImage
-        //captureImage=true;
+        //if (captureImage){
 
-        if (captureImage && (time_span.count() > (imgdT))){
-
-		//captureImage = false;
+		captureImage = false;
 
 		// Check for valid jpg_quality in request and adjust if necessary
 		if (req.jpg_quality < 1 || req.jpg_quality > 100)
@@ -228,84 +125,53 @@ static void image_handler (const lcm_recv_buf_t *rbuf, const char * channel, con
 
 		// Encode image as JPEG
 		vector<uint8_t> jpg; ///< container for JPEG image data
-		vector<int> p (4); ///< params for cv::imencode. Sets the JPEG quality.
+		vector<int> p (2); ///< params for cv::imencode. Sets the JPEG quality.
 		p[0] = CV_IMWRITE_JPEG_QUALITY;
 		p[1] = req.jpg_quality;
-		p[2] = 4; //CV_IMWRITE_JPEG_RST_INTERVAL
-		p[3] = 7500;
-        // If we want to resize the image here, see http://docs.opencv.org/modules/imgproc/doc/geometric_transformations.html
 		cv::imencode(".jpg", img, jpg, p);
 
-		/*
-		// HACK to see if the problem is with JPEG encoding
-		char fileNameB[128];
-		char fileNameJ[128];
-		sprintf(fileNameB, "IMG%08d.bmp", myimgcounter);
-		sprintf(fileNameJ, "IMG%08d.jpg", myimgcounter++);
-		cv::imwrite((std::string("RawImages/") + fileNameB).c_str(), img);
-		
-		cv::imwrite((std::string("JpgImages/") + fileNameJ).c_str(), img,p);
-		
-		ofstream outputFile ((std::string("JpgImages2/") + fileNameJ).c_str());
-		for (vector<uint8_t>::iterator jpgit = jpg.begin(); jpgit!= jpg.end(); jpgit++){
-			outputFile << *jpgit;
-		}
-		
-		// END HACK
-		*/
-		
 		// Prepare and send acknowledgment packet
 		ack.type = static_cast<uint8_t>( DATA_TYPE_JPEG_IMAGE );
 		ack.size = static_cast<uint32_t>( jpg.size() );
-		ack.packets = static_cast<uint16_t>( ack.size/PACKET_PAYLOAD );
+		ack.packets = static_cast<uint8_t>( ack.size/PACKET_PAYLOAD );
 		if (ack.size % PACKET_PAYLOAD) { ++ack.packets; } // one more packet with the rest of data
 		ack.payload = static_cast<uint8_t>( PACKET_PAYLOAD );
 		ack.jpg_quality = req.jpg_quality;
-		ack.width = CameraResW;
-		ack.height = CameraResH;
+		ack.width = 640;
+		ack.height = 480;
 
 		mavlink_msg_data_transmission_handshake_encode(sysid, compid, &tmp, &ack);
 		sendMAVLinkMessage(lcmMavlink, &tmp);
 
 		// Send image data (split up into smaller chunks first, then sent over MAVLink)
 		uint8_t data[PACKET_PAYLOAD];
-		uint32_t byteIndex = 0;
+		uint16_t byteIndex = 0;
 		if (verbose) printf("there are %02d packets waiting to be sent (%05d bytes). start sending...\n", ack.packets, ack.size);
 
-        for (uint16_t k = 0; k < redundantFrames; ++k)
-        { 
-		    for (uint16_t i = 0; i < ack.packets; ++i)
-		    {
-				// TODO remove, this is the world's possible way of simulating packet loss
-				//if ((i % 79) != 37)
-				//{
+		for (uint8_t i = 0; i < ack.packets; ++i)
+		{
 			// Copy PACKET_PAYLOAD bytes of image data to send buffer
-			    for (uint8_t j = 0; j < PACKET_PAYLOAD; ++j)
-			    {
-				    if (byteIndex < ack.size)
-				    {
-					    data[j] = (uint8_t)jpg[byteIndex];
-				    }
-				    // fill packet data with padding bits
-				    else
-				    {
-				    	data[j] = 0;
-				    }
-				    ++byteIndex;
-			    }
-			    // Send ENCAPSULATED_IMAGE packet
-			    mavlink_msg_encapsulated_data_pack(sysid, compid, &tmp, i, data);
-           
-			    sendMAVLinkMessage(lcmMavlink, &tmp);
-			    if (verbose) printf("sent packet %02d/%02d (copy %d), wait %d micros\n", i+1,ack.packets,k,(int) (1000000*imgdT/(1.2*ack.packets) +0.5));
-                //We try and slow down package sending, to avoid overloading the net. Note that this may be an especially bad idea, since it is unclear whether we'll keep checking other incoming messages
-                std::this_thread::sleep_for (std::chrono::microseconds( (int) (1000000*imgdT/(1.2*ack.packets*redundantFrames) +0.5) ) );
-				//}// TODO remove this too
-		    }
-        }
-        tic = std::chrono::high_resolution_clock::now();
+			for (uint8_t j = 0; j < PACKET_PAYLOAD; ++j)
+			{
+				if (byteIndex < ack.size)
+				{
+					data[j] = (uint8_t)jpg[byteIndex];
+				}
+				// fill packet data with padding bits
+				else
+				{
+					data[j] = 0;
+				}
+				++byteIndex;
+			}
+			// Send ENCAPSULATED_IMAGE packet
+			mavlink_msg_encapsulated_data_pack(sysid, compid, &tmp, i, data);
+			sendMAVLinkMessage(lcmMavlink, &tmp);
+			if (verbose) printf("sent packet %02d successfully\n", i+1);
+		}
+
         //Only execute the stuff below every now and then: to here
-        }
+        //}
 	}
 	}
     //std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -318,14 +184,14 @@ static void mavlink_handler (const lcm_recv_buf_t *rbuf, const char * channel, c
 {
 	const mavlink_message_t* msg = getMAVLinkMsgPtr(container);
 
-	if(msg->sysid == getSystemID())
+	if(msg->sysid == 42)
 		//captureImage = true;
 
 	if (msg->msgid == MAVLINK_MSG_ID_DATA_TRANSMISSION_HANDSHAKE)
 	{
 		mavlink_msg_data_transmission_handshake_decode(msg, &req);
 
-		if (req.type == DATA_TYPE_JPEG_IMAGE && msg->sysid != getSystemID()) // TODO: use getSystemID()
+		if (req.type == DATA_TYPE_JPEG_IMAGE && msg->sysid != 42) // TODO: use getSystemID()
 		{
 			// start recording image data
 			//captureImage = true;
@@ -337,58 +203,11 @@ static void mavlink_handler (const lcm_recv_buf_t *rbuf, const char * channel, c
 	{
 		mavlink_command_long_t cmd;
 		mavlink_msg_command_long_decode(msg, &cmd);
-        //std::cout << "Received message COMMAND_LONG, what could it be? (Message command: "<<cmd.command<<", target "<<(uint8_t) cmd.target_system<<" (comparison with 1: "<<(cmd.target_system == 1)<<", and I am "<<getSystemID()<<")\n";
-		if (cmd.target_system == getSystemID() && cmd.command == MAV_CMD_IMAGE_START_CAPTURE){
-            if (verbose){
-                std::cout << "Received message CMD_IMAGE_START_CAPTURE! Doing nothing, though, this is the wrong process\n";
-            }
-            //captureImage= true;
-        }else if (cmd.target_system == getSystemID() && cmd.command == MAV_CMD_DO_CONTROL_VIDEO) {
-            //Param 1: camera ID, ignore.
-
-            //Param 2: transmission, 0 for disabled, 1 for enabled compressed, 2 for enabled raw (not supported)
-            captureImage = ((cmd.param2>0 && cmd.param3 != 0) ? true : false);
-            if (verbose){std::cout<<"Capture image set to "<<captureImage<<"\n";} 
-            //Param 3: Tramsmission mode. 0 for video (not implemented here), 1 for image every n seconds
-            imgdT=cmd.param3;
-            if (verbose){std::cout<<"Sending an image every "<<imgdT<<" seconds \n";} 
-            //Param 4: Recording. 0: disabled, 1: compressed, 2: raw (already implemented in mavconn-imagecapture)
-
-            //Nonstandard: Param 6: number of copies of each frame
-            redundantFrames=( (cmd.param6>1.0) ? (int) cmd.param6 : 1);
-            if (verbose){std::cout<<"Sending "<<redundantFrames<<" copies of each packet\n";}        
-        }
-	}
-	
-	if (msg->msgid == MAVLINK_MSG_ID_PARAM_SET)
-	{
-		std::string strHeight ("RESH");
-		std::string strWidth ("RESW");
-		mavlink_param_set_t set;
-		mavlink_msg_param_set_decode(msg, &set);
-		if (verbose)
-			printf("Heard ParamSET message to sys %d, component %d\n",set.target_system,set.target_component);
-		if ((uint8_t) set.target_system
-				== (uint8_t) getSystemID() &&
-					(uint8_t) set.target_component == 2) //The message is meant for the camera
-		{
-			const char* key = (char*) set.param_id;
-			std::string paramName(key);
-			std::cout<<"Key: "<<paramName<<"\n";
-			if (paramName.compare(strHeight) == 0)
-			{
-				CameraResH = (uint16_t) set.param_value;
-				if (verbose)
-					printf("Set camera vertical resolution (H) to %d\n",CameraResH);
-			}
-			if (paramName.compare(strWidth) == 0)
-			{
-				CameraResW = (uint16_t) set.param_value;
-				if (verbose)
-					printf("Set camera horizontal resolution (W) to %d\n",CameraResW);
-			}
-				
-		}
+        std::cout << "Received message COMMAND_LONG, what could it be? (Message command: "<<cmd.command<<", target "<<(uint8_t) cmd.target_system<<" (comparison with 1: "<<(cmd.target_system == 1)<<", and I am "<<getSystemID()<<")\n";
+		if (cmd.target_system == 1 && cmd.command == MAV_CMD_IMAGE_START_CAPTURE){
+            std::cout << "Received message CMD_IMAGE_START_CAPTURE!\n";
+            captureImage= true;
+        }   //TODO Note that getSystemID is not working unless we specify a mavconn.conf file (and I don't know its format). Above, we hardcode the system ID as 1. This is ugly, fix 
 	}
 
 }
@@ -400,7 +219,7 @@ signalHandler(int signal)
         {
                 fprintf(stderr, "# INFO: Quitting...\n");
                 quit = true;
-                //exit(EXIT_SUCCESS);
+                exit(EXIT_SUCCESS);
         }
 }
 
@@ -408,7 +227,7 @@ void* lcm_wait(void* lcm_ptr)
 {
 	lcm_t* lcm = (lcm_t*) lcm_ptr;
 	// Blocking wait for new data
-	while (!quit)
+	while (true)
 	{
 		lcm_handle (lcm);
 	}
@@ -418,7 +237,7 @@ void* lcm_wait(void* lcm_ptr)
 void* lcm_image_wait(void* lcm_ptr)
 {
 	lcm_t* lcm = (lcm_t*)lcm_ptr;
-	while(!quit)
+	while(1)
 	{	
 		lcm_handle(lcm);
 	}
@@ -434,7 +253,7 @@ int main(int argc, char* argv[])
 	config::options_description desc("Allowed options");
 	desc.add_options()
 		("help", "produce help message")
-		("sysid,a", config::value<int>(&sysid)->default_value(getSystemID()), "ID of this system, 1-256")
+		("sysid,a", config::value<int>(&sysid)->default_value(42), "ID of this system, 1-256")
 		("compid,c", config::value<int>(&compid)->default_value(30), "ID of this component")
 		("camno,c", config::value<uint64_t>(&camno)->default_value(0), "ID of the camera to read")
 		("silent,s", config::bool_switch(&silent)->default_value(false), "suppress outputs")
@@ -502,7 +321,6 @@ int main(int argc, char* argv[])
 	// Clean up
 	cout << "Stopping thread for image capture..." << endl;
 	g_thread_join(lcm_mavlinkThread);
-    g_thread_join(lcm_imageThread);
 
 	cout << "Everything done successfully - Exiting" << endl;
 

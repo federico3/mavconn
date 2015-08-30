@@ -59,6 +59,13 @@ typedef struct _bufferIMU
 	//uint64_t delay;
 } bufferIMU_t;
 
+typedef struct
+{
+	lcm_t* lcm;
+	MAVConnParamClient* client;
+	boost::circular_buffer<bufferIMU_t>* dataBuffer;
+} camera_thread_context_t;
+
 const int MAGIC_MAX_BUFFER_AND_RETRY = 100;		// Size of the message buffer for LCM messages and maximum number of skipped/dropped frames before stopping when a mismatch happens
 const int MAGIC_MIN_SEQUENCE_DIFF = 150;		// *has to be > than MAGIC_MAX_BUFFER_AND_RETRY!* Minimum difference between two consecutively processed images to assume a sequence mismatch
 												// In other words: the maximum number of skippable frames
@@ -106,6 +113,7 @@ void
 mavlinkHandler(const lcm_recv_buf_t* rbuf, const char* channel,
 			   const mavconn_mavlink_msg_container_t* container, void* user)
 {
+	
 	boost::circular_buffer<bufferIMU_t>* dataBuffer =
 			reinterpret_cast<boost::circular_buffer<bufferIMU_t>*>(user);
 
@@ -113,6 +121,9 @@ mavlinkHandler(const lcm_recv_buf_t* rbuf, const char* channel,
 
 	// Handle param messages
 	paramClient->handleMAVLinkPacket(msg);
+
+	//if (Verbose)
+	//	printf("Heard message %d from %d!\n",msg->msgid,msg->sysid);
 
 	if (msg->msgid == MAVLINK_MSG_ID_IMAGE_TRIGGERED)
 	{
@@ -147,6 +158,7 @@ mavlinkHandler(const lcm_recv_buf_t* rbuf, const char* channel,
 		messageMutex.unlock();
 		Glib::Thread::yield();
 	}
+	// TODO implement listener for CMD_DO_CONTROL_VIDEO (check) that listens for new resolution and changes camera parameters.
 }
 
 void lcmWait(lcm_t* lcm)
@@ -157,6 +169,82 @@ void lcmWait(lcm_t* lcm)
 		lcm_handle(lcm);
 	}
 }
+
+static inline int getCameraResW(void)   //Modeled after GetSystemID
+{
+	static bool isCached = false;
+	// Return 1280 on error or no config file present
+	static int CameraResW = 1280;
+
+	if (!isCached)
+	{
+		// Read config file
+		std::string line;
+		std::ifstream configFile("/etc/mavconn/mavconn.conf");
+		if (configFile.is_open())
+		{
+			while (configFile.good())
+			{
+				std::string key;
+				int value;
+				configFile >> key;
+				configFile >> value;
+
+				key = trimString(key);
+
+				if (key == "cameraresw" && value > 0)
+				{
+					CameraResW = value;
+                    isCached = true;
+                    //std::cout<<"Reading SysID from mavconn.conf successful, sysID "<<systemId<<"\n";
+				}
+			}
+		}
+
+	}/*else{
+        std::cout<<"Reading cached SysID "<<systemId<<"\n";
+    }*/
+
+	return CameraResW;
+}
+
+static inline int getCameraResH(void)   //Modeled after GetSystemID
+{
+	static bool isCached = false;
+	// Return 720 on error or no config file present
+	static int CameraResH = 720;
+
+	if (!isCached)
+	{
+		// Read config file
+		std::string line;
+		std::ifstream configFile("/etc/mavconn/mavconn.conf");
+		if (configFile.is_open())
+		{
+			while (configFile.good())
+			{
+				std::string key;
+				int value;
+				configFile >> key;
+				configFile >> value;
+
+				key = trimString(key);
+
+				if (key == "cameraresh" && value > 0)
+				{
+					CameraResH = value;
+                    isCached = true;
+                    //std::cout<<"Reading SysID from mavconn.conf successful, sysID "<<systemId<<"\n";
+				}
+			}
+		}
+
+	}/*else{
+        std::cout<<"Reading cached SysID "<<systemId<<"\n";
+    }*/
+
+	return CameraResH;
+} 
 
 void
 cameraGrab(PxCameraPtr& pxCam, cv::Mat *frame, uint32_t *skippedFrames, uint32_t *sequenceNum)
@@ -286,14 +374,32 @@ int main(int argc, char* argv[])
 	//<-- guarded by messageMutex
 
 	mavconn_mavlink_msg_container_t_subscription_t* mavlinkSub = NULL;
-	if (trigger)
-	{
+	// Modified by Federico on 150714: subscribes to MAVLINK UDP stream even if no trigger
+	
+	// Initialize paramClient early
+    paramClient = new MAVConnParamClient(getSystemID(), compid, lcm, configFile, verbose);
+    paramClient->setParamValue("MINIMGINTERVAL", 0);
+    paramClient->setParamValue("EXPOSURE", exposure);
+    paramClient->setParamValue("GAIN", gain);
+	paramClient->setParamValue("RESW", getCameraResW());
+	paramClient->setParamValue("RESH", getCameraResH());
+    paramClient->readParamsFromFile(configFile);
+	
+	/*// Create a data structure to connect parameter client to LCM
+	camera_thread_context_t thread_context;
+	thread_context.lcm = lcm;
+	thread_context.client = paramClient;
+	thread_context.dataBuffer = &dataBuffer;*/
+	
+	//if (trigger)
+	//{
+	
 		mavlinkSub = mavconn_mavlink_msg_container_t_subscribe(lcm, MAVLINK_MAIN, &mavlinkHandler, &dataBuffer);
 		if (!verbose)
 		{
 			fprintf(stderr, "# INFO: Subscribed to %s LCM channel.\n", MAVLINK_MAIN);
 		}
-
+	
 		try
 		{
 			lcmThread = Glib::Thread::create(sigc::bind(sigc::ptr_fun(lcmWait), lcm), true);
@@ -303,7 +409,8 @@ int main(int argc, char* argv[])
 			fprintf(stderr, "# ERROR: Cannot create LCM handling thread.\n");
 			exit(EXIT_FAILURE);
 		}
-	}
+		//}
+	// End modification
 
 	// Init image grabbing mutex/conditions
 	// they are used only with libdc1394 capturing
@@ -319,11 +426,7 @@ int main(int argc, char* argv[])
 		processingDoneCond = new Glib::Cond;
 	}
 
-    paramClient = new MAVConnParamClient(getSystemID(), compid, lcm, configFile, verbose);
-    paramClient->setParamValue("MINIMGINTERVAL", 0);
-    paramClient->setParamValue("EXPOSURE", exposure);
-    paramClient->setParamValue("GAIN", gain);
-    paramClient->readParamsFromFile(configFile);
+
 
 	//========= Initialize capture devices =========
 	fprintf(stderr, "# INFO: Creating capture...\n");
@@ -434,7 +537,7 @@ int main(int argc, char* argv[])
 	{
 		mode = PxCameraConfig::AUTO_MODE;
 	}
-	PxCameraConfig config(mode, frameRate, trigger, exposure, gain, gamma);
+	PxCameraConfig config(mode, frameRate, trigger, exposure, gain, gamma,2047,12000,getCameraResW(),getCameraResH());
 
 	if (useStereo)
 	{
@@ -711,6 +814,9 @@ int main(int argc, char* argv[])
 		bool changed = false;
 		uint32_t newExposureTime = (uint32_t)paramClient->getParamValue("EXPOSURE");
 		uint32_t newGain = (uint32_t)paramClient->getParamValue("GAIN");
+		uint32_t newResH = (uint32_t)paramClient->getParamValue("RESH");
+		uint32_t newResW = (uint32_t)paramClient->getParamValue("RESW");
+			
 		if (newExposureTime != config.getExposureTime())
 		{
 			config.setExposureTime(newExposureTime);
@@ -721,6 +827,15 @@ int main(int argc, char* argv[])
 			config.setGain(newGain);
 			changed = true;
 		}
+		// TODO add check for image resolution along the lines of what we have above
+		if (newResH != config.getResH() || newResW != config.getResW())
+		{
+			config.setResW(newResW);
+			config.setResH(newResH);
+			changed = true;
+		}
+		
+		
 		if (changed)
 		{
 			if (useStereo)
@@ -1054,8 +1169,8 @@ int main(int argc, char* argv[])
 						{
 							frame.copyTo(gray);
 						}
-
-						server.writeMonoImage(gray, camSerial, timestamp, image_data, exposure);
+                        server.writeMonoImage(gray, camSerial, timestamp, image_data, exposure);
+						//server.writeMonoImage(frame, camSerial, timestamp, image_data, exposure);
 					}
 				}
 			}

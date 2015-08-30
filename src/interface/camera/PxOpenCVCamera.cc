@@ -67,30 +67,46 @@ PxOpenCVCamera::destroy(void)
 bool
 PxOpenCVCamera::setConfig(const PxCameraConfig& config, bool master)
 {
+    //fprintf(stderr,"Configuring camera...\n");
+    //fprintf(stderr,"Setting mode...\n");
 	if (!setMode(config.getMode()))
 	{
 		return false;
 	}
+    //fprintf(stderr,"Mode set, setting resolution...\n");
+    if (!setResolution(config.getResW(), config.getResH()))
+    {
+        return false;
+    }
+
+    //fprintf(stderr,"Resolution set, setting framerate...\n");
 	if (!setFrameRate(config.getFrameRate()))
 	{
 		return false;
 	}
+    //fprintf(stderr,"Framerate set, setting exposure...\n");
 	if (!setExposureTime(config.getExposureTime()))
 	{
 		return false;
 	}
+    //fprintf(stderr,"Exposure set, setting gain...\n");
 	if (!setGain(config.getGain()))
 	{
 		return false;
 	}
+    //fprintf(stderr,"Gain set, setting gamma...\n");
 	if (!setGamma(config.getGamma()))
 	{
 		return false;
 	}
+    //fprintf(stderr,"Gamma set, setting brightness...\n");
 	if (!setBrightness(config.getBrightness()))
 	{
 		return false;
 	}
+
+    //fprintf(stderr,"Configuration successful!\n");
+
 
 	return true;
 }
@@ -124,7 +140,7 @@ bool
 PxOpenCVCamera::setFrameRate(float frameRate)
 {
 	
-	return camera->set(CV_CAP_PROP_FPS,frameRate);
+	return (!camera->set(CV_CAP_PROP_FPS,frameRate));
 }
 
 bool
@@ -161,4 +177,12 @@ PxOpenCVCamera::setBrightness(uint32_t brightness)
 	return true;
 }
 
-
+bool
+PxOpenCVCamera::setResolution(uint32_t resW, uint32_t resH)
+{
+    bool setW, setH;
+    setW = camera->set(CV_CAP_PROP_FRAME_WIDTH,(float) resW);
+    setH = camera->set(CV_CAP_PROP_FRAME_HEIGHT,(float) resH);
+    //fprintf(stderr,"Setting openCV camera resolution to %d x %d (success %d, %d, res. %f x %f, returning %d)\n",resW,resH,setW,setH,camera->get(CV_CAP_PROP_FRAME_WIDTH),camera->get(CV_CAP_PROP_FRAME_HEIGHT),(!setW && !setH));
+    return (!setW && !setH);
+}

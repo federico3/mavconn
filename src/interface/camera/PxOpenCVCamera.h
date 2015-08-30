@@ -62,6 +62,7 @@ private:
 	bool setGain(uint32_t gain);
 	bool setGamma(uint32_t gamma);
 	bool setBrightness(uint32_t brightness);
+    bool setResolution(uint32_t resW, uint32_t resH); 
 
 	cv::VideoCapture* camera; //camera connected to this capture structure
 

@@ -457,6 +457,7 @@ static void mavlink_handler (const lcm_recv_buf_t *rbuf, const char * channel, c
 		{
 			mavlink_command_long_t command;
 			mavlink_msg_command_long_decode(mavlink_msg, &command);
+            std::cout<<"Received MAVLINK message, command_long, target compares to 42: "<< (command.target_system == sysid)<<", command "<<command.command<<"\n";
 			if (command.target_system != sysid && command.target_system != 0) break;
 			if (command.command == MAV_CMD_DO_CONTROL_VIDEO)
 			{
